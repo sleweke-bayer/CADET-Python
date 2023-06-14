@@ -1,8 +1,7 @@
-from addict import Dict
-
 import warnings
+
 with warnings.catch_warnings():
-    warnings.filterwarnings("ignore",category=FutureWarning)
+    warnings.filterwarnings("ignore", category=FutureWarning)
     import h5py
 import numpy
 import subprocess
@@ -14,8 +13,10 @@ import filelock
 import contextlib
 
 from pathlib import Path
+from addict import Dict
 
 from cadet.cadet_dll import CadetDLL
+
 
 class H5():
     pp = pprint.PrettyPrinter(indent=4)
@@ -77,6 +78,32 @@ class H5():
             else:
                 self.root = data
 
+    def save_as_python_script(self, filename: str, only_return_pythonic_representation=False):
+        if not filename.endswith(".py"):
+            raise Warning(f"The filename given to .save_as_python_script isn't a python file name.")
+
+        code_lines_list = [
+            "import numpy",
+            "from cadet import Cadet",
+            "",
+            "sim = Cadet()",
+            "root = sim.root",
+        ]
+
+        code_lines_list = recursively_turn_dict_to_python_list(dictionary=self.root,
+                                                               current_lines_list=code_lines_list,
+                                                               prefix="root")
+
+        filename_for_reproduced_h5_file = filename.replace(".py", ".h5")
+        code_lines_list.append(f"sim.filename = '{filename_for_reproduced_h5_file}'")
+        code_lines_list.append("sim.save()")
+
+        if not only_return_pythonic_representation:
+            with open(filename, "w") as handle:
+                handle.writelines([line + "\n" for line in code_lines_list])
+        else:
+            return code_lines_list
+
     def append(self, lock=False):
         "This can only be used to write new keys to the system, this is faster than having to read the data before writing it"
         if self.filename is not None:
@@ -117,9 +144,11 @@ class H5():
                 obj = obj[i]
         obj[parts[-1]] = value
 
+
 def is_dll(value):
     suffix = Path(value).suffix
     return suffix in {'.so', '.dll'}
+
 
 class CadetMeta(type):
     _cadet_runner_class = None
@@ -144,7 +173,7 @@ class CadetMeta(type):
             del cls._cadet_runner_class
 
         if is_dll(value):
-            cls._cadet_runner_class  = CadetDLL(value)
+            cls._cadet_runner_class = CadetDLL(value)
             cls._is_file_class = False
         else:
             cls._cadet_runner_class = CadetFile(value)
@@ -154,8 +183,9 @@ class CadetMeta(type):
     def cadet_path(cls):
         del cls._cadet_runner_class
 
+
 class Cadet(H5, metaclass=CadetMeta):
-    #cadet_path must be set in order for simulations to run
+    # cadet_path must be set in order for simulations to run
     def __init__(self, *data):
         super().__init__(*data)
         self._cadet_runner = None
@@ -188,7 +218,7 @@ class Cadet(H5, metaclass=CadetMeta):
             del self._cadet_runner
 
         if is_dll(value):
-            self._cadet_runner  = CadetDLL(value)
+            self._cadet_runner = CadetDLL(value)
             self._is_file = False
         else:
             self._cadet_runner = CadetFile(value)
@@ -209,14 +239,14 @@ class Cadet(H5, metaclass=CadetMeta):
         if runner is not None:
             runner.load_results(self)
 
-    def run(self, timeout = None, check=None):
+    def run(self, timeout=None, check=None):
         data = self.cadet_runner.run(simulation=self.root.input, filename=self.filename, timeout=timeout, check=check)
-        #self.return_information = data
+        # self.return_information = data
         return data
 
-    def run_load(self, timeout = None, check=None, clear=True):
+    def run_load(self, timeout=None, check=None, clear=True):
         data = self.cadet_runner.run(simulation=self.root.input, filename=self.filename, timeout=timeout, check=check)
-        #self.return_information = data
+        # self.return_information = data
         self.load_results()
         if clear:
             self.clear()
@@ -227,14 +257,15 @@ class Cadet(H5, metaclass=CadetMeta):
         if runner is not None:
             runner.clear()
 
+
 class CadetFile:
 
     def __init__(self, cadet_path):
         self.cadet_path = cadet_path
 
-    def run(self, filename = None, simulation=None, timeout = None, check=None):
+    def run(self, filename=None, simulation=None, timeout=None, check=None):
         if filename is not None:
-            data = subprocess.run([self.cadet_path, filename], timeout = timeout, check=check, capture_output=True)
+            data = subprocess.run([self.cadet_path, filename], timeout=timeout, check=check, capture_output=True)
             return data
         else:
             print("Filename must be set before run can be used")
@@ -245,9 +276,10 @@ class CadetFile:
     def load_results(self, sim):
         sim.load(paths=["/meta", "/output"], update=True)
 
+
 def convert_from_numpy(data, func):
     ans = Dict()
-    for key_original,item in data.items():
+    for key_original, item in data.items():
         key = func(key_original)
         if isinstance(item, numpy.ndarray):
             item = item.tolist()
@@ -264,15 +296,17 @@ def convert_from_numpy(data, func):
             ans[key] = item
     return ans
 
-def recursively_load_dict( data, func):
+
+def recursively_load_dict(data, func):
     ans = Dict()
-    for key_original,item in data.items():
+    for key_original, item in data.items():
         key = func(key_original)
         if isinstance(item, dict):
             ans[key] = recursively_load_dict(item, func)
         else:
             ans[key] = item
     return ans
+
 
 def set_path(obj, path, value):
     "paths need to be broken up so that subobjects are correctly made"
@@ -285,7 +319,8 @@ def set_path(obj, path, value):
 
     temp[path[-1]] = value
 
-def recursively_load( h5file, path, func, paths):
+
+def recursively_load(h5file, path, func, paths):
     ans = Dict()
     if paths is not None:
         for path in paths:
@@ -306,8 +341,8 @@ def recursively_load( h5file, path, func, paths):
                 ans[key] = recursively_load(h5file, local_path + '/', func, None)
     return ans
 
-def recursively_save(h5file, path, dic, func):
 
+def recursively_save(h5file, path, dic, func):
     if not isinstance(path, str):
         raise ValueError("path must be a string")
     if not isinstance(h5file, h5py._hl.files.File):
@@ -347,3 +382,73 @@ def recursively_save(h5file, path, dic, func):
                     raise KeyError(f'Name conflict with upper and lower case entries for key "{path}{key}".')
                 else:
                     raise
+
+
+def recursively_turn_dict_to_python_list(dictionary: dict, current_lines_list: list = None, prefix: str = None):
+    """
+    Recursively turn a nested dictionary or addict.Dict into a list of Python code that
+    can generate the nested dictionary.
+
+    :param dictionary:
+    :param current_lines_list:
+    :param prefix_list:
+    :return: list of Python code lines
+    """
+
+    def merge_to_absolute_key(prefix, key):
+        """
+        Combine key and prefix to "prefix.key" except if there is no prefix, then return key
+        """
+        if prefix is None:
+            return key
+        else:
+            return f"{prefix}.{key}"
+
+    if current_lines_list is None:
+        current_lines_list = []
+
+    for key in sorted(dictionary.keys()):
+        value = dictionary[key]
+
+        absolute_key = merge_to_absolute_key(prefix, key)
+
+        if type(value) in (dict, Dict):
+            current_lines_list = recursively_turn_dict_to_python_list(value, current_lines_list, prefix=absolute_key)
+        else:
+            value_representation = get_pythonic_representation_of_value(value)
+
+            absolute_key = clean_up_key(absolute_key)
+
+            current_lines_list.append(f"{absolute_key} = {value_representation}")
+
+    return current_lines_list
+
+
+def clean_up_key(absolute_key: str):
+    """
+    Remove problematic phrases from key, such as blank "return"
+
+    :param absolute_key:
+    :return:
+    """
+    absolute_key = absolute_key.replace(".return", "['return']")
+    return absolute_key
+
+
+def get_pythonic_representation_of_value(value):
+    """
+    Use repr() to get a pythonic representation of the value
+    and add "np." to "array" and "float64"
+
+    """
+    value_representation = repr(value)
+    value_representation = value_representation.replace("array", "numpy.array")
+    value_representation = value_representation.replace("float64", "numpy.float64")
+    try:
+        eval(value_representation)
+    except NameError as e:
+        raise ValueError(
+            f"Encountered a value of '{value_representation}' that can't be directly reproduced in python.\n"
+            f"Please report this to the CADET-Python developers.") from e
+
+    return value_representation
